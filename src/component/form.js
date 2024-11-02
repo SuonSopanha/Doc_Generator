@@ -38,7 +38,20 @@ const Form = () => {
       });
 
       if (response.ok) {
-        alert("Files and placeholders uploaded successfully.");
+        // Create a blob from the response
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob); // Create a URL for the blob
+
+        // Create an anchor element and trigger the download
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "generated-documents.zip"; // Set a default file name
+        document.body.appendChild(a);
+        a.click(); // Simulate a click on the anchor element to trigger the download
+        a.remove(); // Remove the anchor element from the DOM
+        window.URL.revokeObjectURL(url); // Clean up the URL
+
+        alert("Files and placeholders uploaded successfully. Downloading the ZIP file...");
       } else {
         alert("Failed to upload files.");
       }
@@ -75,7 +88,7 @@ const Form = () => {
       </div>
 
       {/* Dynamic Placeholders Section */}
-      <div className="flex flex-col gap-2 items-center mt-2 w-full">
+      {/* <div className="flex flex-col gap-2 items-center mt-2 w-full">
         {placeholders.map((placeholder, index) => (
           <input
             key={index}
@@ -97,7 +110,7 @@ const Form = () => {
         >
           Add Placeholder
         </button>
-      </div>
+      </div> */}
 
       <div className="w-full flex items-center justify-center">
         <button
