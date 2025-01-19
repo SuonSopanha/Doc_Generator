@@ -2,31 +2,34 @@
 import { useState } from "react";
 
 const Form = () => {
-  const [placeholders, setPlaceholders] = useState([""]); // Start with one placeholder
+  const [placeholders, setPlaceholders] = useState([""]);
   const [docFile, setDocFile] = useState(null);
   const [excelFile, setExcelFile] = useState(null);
+  const [outputFormat, setOutputFormat] = useState("single");
+  const [outputExtension, setOutputExtension] = useState("docx");
+  const [password, setPassword] = useState(null); // State for the password
+  const [downloadLink, setDownloadLink] = useState(null); // State for the download link
 
-  // Function to add a new placeholder input
   const addPlaceholder = () => {
-    setPlaceholders([...placeholders, ""]); // Add an empty string to the array
+    setPlaceholders([...placeholders, ""]);
   };
 
-  // Function to handle file uploads and placeholders
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Check if files are uploaded
     if (!docFile || !excelFile) {
       alert("Please upload both DOC and Excel files.");
       return;
     }
 
-    // Create a FormData object to send files and placeholders
     const formData = new FormData();
     formData.append("docFile", docFile);
     formData.append("excelFile", excelFile);
+    formData.append("outputFormat", outputFormat);
+    formData.append("outputExtension", outputExtension);
+    formData.append("password", password); // Append the password to form data
 
-    // Append placeholders to formData
+
     placeholders.forEach((placeholder, index) => {
       formData.append(`placeholder${index + 1}`, placeholder);
     });
@@ -38,20 +41,13 @@ const Form = () => {
       });
 
       if (response.ok) {
-        // Create a blob from the response
         const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob); // Create a URL for the blob
+        const url = window.URL.createObjectURL(blob);
 
-        // Create an anchor element and trigger the download
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "generated-documents.zip"; // Set a default file name
-        document.body.appendChild(a);
-        a.click(); // Simulate a click on the anchor element to trigger the download
-        a.remove(); // Remove the anchor element from the DOM
-        window.URL.revokeObjectURL(url); // Clean up the URL
-
-        alert("Files and placeholders uploaded successfully. Downloading the ZIP file...");
+        setDownloadLink(url); // Set download link
+        alert(
+          "Files and placeholders uploaded successfully. Download available."
+        );
       } else {
         alert("Failed to upload files.");
       }
@@ -61,66 +57,143 @@ const Form = () => {
   };
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex flex-col gap-8 row-start-2 items-center sm:items-start -mt-12"
-    >
-      <div className="flex flex-col sm:flex-row gap-2 items-center">
-        <label className="text-sm sm:text-base">
-          Upload DOC file:
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-6 bg-white shadow-lg rounded-lg w-full mx-auto">
+      {/* Form Section */}
+      <form
+        onSubmit={handleSubmit}
+        className="flex flex-col items-center gap-6 p-6 bg-white-50 rounded-lg"
+      >
+        <h2 className="text-2xl font-semibold text-gray-700 mb-4">
+          Auto Docx Generator
+        </h2>
+
+        <div className="w-full">
+          <label className="text-sm font-medium text-gray-900 block mb-1">
+            Upload DOC file
+          </label>
           <input
             type="file"
             accept=".doc,.docx"
-            className="mt-2 block text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-foreground file:text-background hover:file:bg-[#383838]"
+            className="w-full text-sm border border-gray-300 rounded-md file:mr-3 file:py-1 file:px-3 file:border-0 file:rounded-md file:bg-gray-200 file:text-gray-700 hover:file:bg-gray-300"
             onChange={(e) => setDocFile(e.target.files[0])}
           />
-        </label>
+        </div>
 
-        <label className="text-sm sm:text-base">
-          Upload Excel file:
+        <div className="w-full">
+          <label className="text-sm font-medium text-gray-900 block mb-1">
+            Upload Excel file
+          </label>
           <input
             type="file"
             accept=".xls,.xlsx"
-            className="mt-2 block text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-foreground file:text-background hover:file:bg-[#383838]"
+            className="w-full text-sm border border-gray-300 rounded-md file:mr-3 file:py-1 file:px-3 file:border-0 file:rounded-md file:bg-gray-200 file:text-gray-700 hover:file:bg-gray-300"
             onChange={(e) => setExcelFile(e.target.files[0])}
           />
-        </label>
-      </div>
+        </div>
 
-      {/* Dynamic Placeholders Section */}
-      {/* <div className="flex flex-col gap-2 items-center mt-2 w-full">
-        {placeholders.map((placeholder, index) => (
+        <div className="w-full">
+          <label className="text-sm font-medium text-gray-900 block mb-2">
+            Output Extension
+          </label>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="outputExtension"
+                value="docx"
+                checked={outputExtension === "docx"}
+                onChange={(e) => setOutputExtension(e.target.value)}
+                className="text-blue-800 border-gray-300 focus:ring-blue-800"
+              />
+              <span className="text-sm text-gray-700">DOCX</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="outputExtension"
+                value="pdf"
+                checked={outputExtension === "pdf"}
+                onChange={(e) => setOutputExtension(e.target.value)}
+                className="text-blue-800 border-gray-300 focus:ring-blue-800"
+              />
+              <span className="text-sm text-gray-700">PDF</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="w-full">
+          <label className="text-sm font-medium text-gray-900 block mb-2">
+            Output Format
+          </label>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="outputFormat"
+                value="single"
+                checked={outputFormat === "single"}
+                onChange={(e) => setOutputFormat(e.target.value)}
+                className="text-blue-800 border-gray-300 focus:ring-blue-800"
+              />
+              <span className="text-sm text-gray-700">Single</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="outputFormat"
+                value="multiple"
+                checked={outputFormat === "multiple"}
+                onChange={(e) => setOutputFormat(e.target.value)}
+                className="text-blue-800 border-gray-300 focus:ring-blue-800"
+              />
+              <span className="text-sm text-gray-700">Multiple</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="w-full">
+          <label className="text-sm font-medium text-gray-900 block mb-1">
+            Password (Optional)
+          </label>
           <input
-            key={index}
-            type="text"
-            value={placeholder}
-            placeholder={`Enter Placeholder ${index + 1}`}
-            className="mt-2 block w-full sm:w-auto text-sm text-gray-700 py-2 px-4 border rounded-lg border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            onChange={(e) => {
-              const newPlaceholders = [...placeholders];
-              newPlaceholders[index] = e.target.value;
-              setPlaceholders(newPlaceholders);
-            }}
+            type="password"
+            className="w-full text-sm border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
           />
-        ))}
-        <button
-          type="button"
-          onClick={addPlaceholder}
-          className="mt-2 py-2 px-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-        >
-          Add Placeholder
-        </button>
-      </div> */}
+        </div>
 
-      <div className="w-full flex items-center justify-center">
         <button
           type="submit"
-          className="mt-4 py-2 px-4 bg-green-500 text-white rounded-lg hover:bg-green-600"
+          className="w-full py-2 mt-6 text-white font-semibold bg-blue-800 rounded-md hover:bg-blue-900 focus:outline-none"
         >
           Submit
         </button>
+      </form>
+
+      {/* Result Section */}
+      <div className="flex flex-col items-center justify-center p-6 bg-gray-50 rounded-lg text-center">
+        <h3 className="text-xl font-semibold text-gray-700 mb-4">Result</h3>
+        {downloadLink ? (
+          <div>
+            <p className="mb-4 text-gray-900">
+              Your file is ready for download!
+            </p>
+            <a
+              href={downloadLink}
+              download={`generated-documents.${
+                outputFormat === "docx" ? "zip" : "zip"
+              }`}
+              className=" text-white py-2 px-4 font-semibold bg-blue-800 rounded-md hover:bg-blue-900 focus:outline-none"
+            >
+              Download
+            </a>
+          </div>
+        ) : (
+          <p className="text-gray-900">No file generated yet.</p>
+        )}
       </div>
-    </form>
+    </div>
   );
 };
 
