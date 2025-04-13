@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import Autosuggest from "react-autosuggest";
 import * as XLSX from 'xlsx';
+import { FiUpload, FiFilter, FiDownload, FiX, FiCheck, FiCheckCircle, FiLock } from 'react-icons/fi';
 
 // Initialize suggestion sets with default values
 const defaultSuggestionSets = [
@@ -28,6 +29,8 @@ const Form = () => {
   const [excelData, setExcelData] = useState(null); // Store full Excel data
   const [selectedColumn, setSelectedColumn] = useState(null);
   const inputRef = useRef(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isGenerated, setIsGenerated] = useState(false);
 
   // Function to read Excel file
   const readExcelFile = (file) => {
@@ -122,10 +125,25 @@ const Form = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setIsGenerating(true);
 
     if (!docFile || !excelFile) {
       alert("Please upload both DOC and Excel files.");
+      setIsGenerating(false);
       return;
+    }
+
+    // Parse merging condition
+    let mergingCondition = null;
+    if (inputValue) {
+      const [column, operator, value] = inputValue.split(" ");
+      if (column && operator && value) {
+        mergingCondition = {
+          column,
+          operator,
+          value
+        };
+      }
     }
 
     const formData = new FormData();
@@ -133,16 +151,15 @@ const Form = () => {
     formData.append("excelFile", excelFile);
     formData.append("outputFormat", outputFormat);
     formData.append("outputExtension", outputExtension);
-    formData.append("password", password); // Append the password to form data
+    formData.append("password", password);
     formData.append("filterType", filterType);
     formData.append("customFrom", customRange.from);
     formData.append("customTo", customRange.to);
-
-    console.log(formData);
-
-    placeholders.forEach((placeholder, index) => {
-      formData.append(`placeholder${index + 1}`, placeholder);
-    });
+    
+    // Add merging condition if it exists
+    if (mergingCondition) {
+      formData.append("mergingCondition", JSON.stringify(mergingCondition));
+    }
 
     try {
       const response = await fetch("http://localhost:4000/upload", {
@@ -150,23 +167,50 @@ const Form = () => {
         body: formData,
       });
 
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-
-        setDownloadLink(url); // Set download link
-        alert(
-          "Files and placeholders uploaded successfully. Download available."
-        );
-      } else {
-        alert("Failed to upload files.");
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
+
+      // Get the blob directly from the response
+      const blob = await response.blob();
+      
+      // Create a URL for the blob
+      const url = window.URL.createObjectURL(blob);
+      setDownloadLink(url);
+      setIsGenerated(true);
     } catch (error) {
-      console.error("Error uploading files:", error);
+      console.error('Error generating document:', error);
+      alert('Failed to generate document. Please try again.');
+    } finally {
+      setIsGenerating(false);
     }
   };
 
-  // Update Excel file handling
+  // Function to handle the download and cleanup
+  const handleDownload = async () => {
+    if (!downloadLink) return;
+
+    try {
+      // Create an invisible anchor element
+      const a = document.createElement('a');
+      a.href = downloadLink;
+      a.download = `documents-${Date.now()}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      // Cleanup the blob URL after download starts
+      setTimeout(() => {
+        window.URL.revokeObjectURL(downloadLink);
+        setDownloadLink(null);
+        setIsGenerated(false);
+      }, 100);
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      alert('Failed to download file. Please try again.');
+    }
+  };
+
   const handleExcelFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -193,240 +237,263 @@ const Form = () => {
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-6 bg-white shadow-lg rounded-lg w-full mx-auto">
-      {/* Form Section */}
-      <form
-        onSubmit={handleSubmit}
-        className="flex flex-col items-center gap-6 p-6 bg-white-50 rounded-lg"
-      >
-        <h2 className="text-2xl font-semibold text-gray-700 mb-4">
-          Auto Docx Generator
-        </h2>
-
-        <div className="w-full">
-          <label className="text-sm font-medium text-gray-900 block mb-1">
-            Upload DOC file
-          </label>
-          <input
-            type="file"
-            accept=".doc,.docx"
-            className="w-full text-sm border border-gray-300 rounded-md file:mr-3 file:py-1 file:px-3 file:border-0 file:rounded-md file:bg-gray-200 file:text-gray-700 hover:file:bg-gray-300"
-            onChange={(e) => setDocFile(e.target.files[0])}
-          />
+    <div className="max-w-5xl mx-auto p-6">
+      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+        {/* Header */}
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4">
+          <h2 className="text-white text-xl font-semibold">Document Merge Tool</h2>
+          <p className="text-blue-100 text-sm mt-1">Upload your documents and configure merge settings</p>
         </div>
 
-        <div className="w-full">
-          <label className="text-sm font-medium text-gray-900 block mb-1">
-            Upload Excel file
-          </label>
-          <input
-            type="file"
-            accept=".xls,.xlsx,.csv,.json"
-            className="w-full text-sm border border-gray-300 rounded-md file:mr-3 file:py-1 file:px-3 file:border-0 file:rounded-md file:bg-gray-200 file:text-gray-700 hover:file:bg-gray-300"
-            onChange={handleExcelFileChange}
-          />
-        </div>
-
-        <div className="w-full">
-          <label className="text-sm font-medium text-gray-900 block mb-2">
-            Output Extension
-          </label>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="outputExtension"
-                value="docx"
-                checked={outputExtension === "docx"}
-                onChange={(e) => setOutputExtension(e.target.value)}
-                className="text-blue-800 border-gray-300 focus:ring-blue-800"
-              />
-              <span className="text-sm text-gray-700">DOCX</span>
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="outputExtension"
-                value="pdf"
-                checked={outputExtension === "pdf"}
-                onChange={(e) => setOutputExtension(e.target.value)}
-                className="text-blue-800 border-gray-300 focus:ring-blue-800"
-              />
-              <span className="text-sm text-gray-700">PDF</span>
-            </label>
-          </div>
-        </div>
-
-        <div className="w-full">
-          <label className="text-sm font-medium text-gray-900 block mb-2">
-            Output Format
-          </label>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="outputFormat"
-                value="single"
-                checked={outputFormat === "single"}
-                onChange={(e) => setOutputFormat(e.target.value)}
-                className="text-blue-800 border-gray-300 focus:ring-blue-800"
-              />
-              <span className="text-sm text-gray-700">Single</span>
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="outputFormat"
-                value="multiple"
-                checked={outputFormat === "multiple"}
-                onChange={(e) => setOutputFormat(e.target.value)}
-                className="text-blue-800 border-gray-300 focus:ring-blue-800"
-              />
-              <span className="text-sm text-gray-700">Multiple</span>
-            </label>
-          </div>
-        </div>
-
-        <div className="w-full">
-          <label className="text-sm font-medium text-gray-900 block mb-1">
-            Password (Optional)
-          </label>
-          <input
-            type="password"
-            className="w-full text-sm border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </div>
-
-        <div className="w-full">
-          <label className="text-sm font-medium text-gray-900 block mb-1">
-            Row Filter
-          </label>
-          <select
-            className="w-full text-sm border border-gray-300 rounded-md py-2 px-3"
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-          >
-            <option value="all">All</option>
-            <option value="even">Even</option>
-            <option value="odd">Odd</option>
-            <option value="custom">Custom Range</option>
-          </select>
-        </div>
-
-        {filterType === "custom" && (
-          <div className="w-full flex gap-4">
-            <div className="w-1/2">
-              <label className="text-sm font-medium text-gray-900 block mb-1">
-                From
-              </label>
-              <input
-                type="number"
-                className="w-full text-sm border border-gray-300 rounded-md py-2 px-3"
-                value={customRange.from}
-                onChange={(e) =>
-                  setCustomRange({ ...customRange, from: e.target.value })
-                }
-              />
-            </div>
-            <div className="w-1/2">
-              <label className="text-sm font-medium text-gray-900 block mb-1">
-                To
-              </label>
-              <input
-                type="number"
-                className="w-full text-sm border border-gray-300 rounded-md py-2 px-3"
-                value={customRange.to}
-                onChange={(e) =>
-                  setCustomRange({ ...customRange, to: e.target.value })
-                }
-              />
-            </div>
-          </div>
-        )}
-
-        <div className="w-full">
-          <label className="text-sm font-medium text-gray-900 block mb-1">
-            Merging Condition
-          </label>
-          <div className="relative" ref={inputRef}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-6">
+          {/* File Upload Section */}
+          <div className="space-y-6">
             <div className="relative">
-              <input
-                type="text"
-                value={inputValue}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                placeholder="column operator value"
-                className="w-full text-sm border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 relative z-10 bg-white"
-              />
-              {/* Ghost text suggestion */}
-              {inputValue.length > 0 && filteredSuggestions.length > 0 && (
-                <div className="absolute top-0 left-0 h-full flex items-center px-3 text-sm text-gray-400 pointer-events-none z-0 w-full">
-                  <span className="invisible">{inputValue}</span>
-                  <span className="absolute left-0 pl-3 text-gray-400 opacity-70">
-                    {filteredSuggestions[0].substring(
-                      inputValue.split(" ").pop().length
-                    )}
-                  </span>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Word Document
+              </label>
+              <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 transition-all hover:border-blue-500 group">
+                <input
+                  type="file"
+                  accept=".doc,.docx"
+                  onChange={(e) => setDocFile(e.target.files[0])}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                />
+                <div className="text-center">
+                  <FiUpload className="mx-auto h-8 w-8 text-gray-400 group-hover:text-blue-500" />
+                  <p className="mt-2 text-sm text-gray-500 group-hover:text-blue-600">
+                    {docFile ? docFile.name : "Drop your Word document here or click to browse"}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="relative">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Excel Data Source
+              </label>
+              <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 transition-all hover:border-blue-500 group">
+                <input
+                  type="file"
+                  accept=".xls,.xlsx,.csv"
+                  onChange={handleExcelFileChange}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                />
+                <div className="text-center">
+                  <FiUpload className="mx-auto h-8 w-8 text-gray-400 group-hover:text-blue-500" />
+                  <p className="mt-2 text-sm text-gray-500 group-hover:text-blue-600">
+                    {excelFile ? excelFile.name : "Drop your Excel file here or click to browse"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Configuration Section */}
+          <div className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Output Format
+              </label>
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => setOutputFormat("single")}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    outputFormat === "single"
+                      ? "bg-blue-100 text-blue-700 border-2 border-blue-500"
+                      : "bg-gray-100 text-gray-700 border-2 border-transparent hover:bg-gray-200"
+                  }`}
+                >
+                  Single Document
+                </button>
+                <button
+                  onClick={() => setOutputFormat("multiple")}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    outputFormat === "multiple"
+                      ? "bg-blue-100 text-blue-700 border-2 border-blue-500"
+                      : "bg-gray-100 text-gray-700 border-2 border-transparent hover:bg-gray-200"
+                  }`}
+                >
+                  Multiple Documents
+                </button>
+              </div>
+            </div>
+
+            {/* Password Field */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Document Password (Optional)
+              </label>
+              <div className="relative">
+                <input
+                  type="password"
+                  value={password || ''}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter password to protect documents"
+                  className="w-full px-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 pl-10"
+                />
+                <FiLock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                {password && (
+                  <button
+                    onClick={() => setPassword(null)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    <FiX className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Leave empty for no password protection
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Filter Type
+              </label>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                {["all", "even", "odd", "custom"].map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => setFilterType(type)}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-all ${
+                      filterType === type
+                        ? "bg-blue-100 text-blue-700 border-2 border-blue-500"
+                        : "bg-gray-100 text-gray-700 border-2 border-transparent hover:bg-gray-200"
+                    }`}
+                  >
+                    {type}
+                  </button>
+                ))}
+              </div>
+
+              {filterType === "custom" && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">From</label>
+                    <input
+                      type="number"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={customRange.from}
+                      onChange={(e) =>
+                        setCustomRange({ ...customRange, from: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">To</label>
+                    <input
+                      type="number"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={customRange.to}
+                      onChange={(e) =>
+                        setCustomRange({ ...customRange, to: e.target.value })
+                      }
+                    />
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Contextual suggestions dropdown */}
-            {showSuggestion && filteredSuggestions.length > 0 && (
-              <ul className="absolute w-full mt-1 max-h-48 overflow-y-auto list-none p-0 m-0 border border-gray-200 rounded-md bg-white shadow-lg z-20 divide-y divide-gray-100">
-                {filteredSuggestions.map((suggestion, index) => (
-                  <li
-                    key={suggestion}
-                    onClick={() => handleSuggestionClick(suggestion)}
-                    className={`px-3 py-2 cursor-pointer text-sm ${
-                      index === activeSuggestion
-                        ? "bg-blue-50 text-blue-800"
-                        : "hover:bg-gray-50 text-gray-700"
-                    } transition-colors`}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Merging Condition
+              </label>
+              <div className="relative" ref={inputRef}>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={inputValue}
+                    onChange={handleInputChange}
+                    onKeyDown={handleKeyDown}
+                    placeholder="column operator value"
+                    className="w-full px-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 pr-10"
+                  />
+                  {inputValue && (
+                    <button
+                      onClick={() => setInputValue("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      <FiX className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Enhanced suggestions dropdown */}
+                {showSuggestion && filteredSuggestions.length > 0 && (
+                  <ul className="absolute w-full mt-1 max-h-48 overflow-y-auto bg-white rounded-lg shadow-lg border border-gray-200 divide-y divide-gray-100 z-20">
+                    {filteredSuggestions.map((suggestion, index) => (
+                      <li
+                        key={suggestion}
+                        onClick={() => handleSuggestionClick(suggestion)}
+                        className={`px-4 py-2 cursor-pointer text-sm flex items-center space-x-2 ${
+                          index === activeSuggestion
+                            ? "bg-blue-50 text-blue-700"
+                            : "text-gray-700 hover:bg-gray-50"
+                        }`}
+                      >
+                        <span className="flex-1">
+                          {inputValue.split(" ").length > 1 
+                            ? `${inputValue.split(" ").slice(0, -1).join(" ")} ${suggestion}`
+                            : suggestion
+                          }
+                        </span>
+                        {index === activeSuggestion && (
+                          <FiCheck className="w-4 h-4 text-blue-500" />
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-1 flex items-center">
+                <FiFilter className="w-3 h-3 mr-1" />
+                Format: column_name operator value (e.g., "email = john@example.com")
+              </p>
+            </div>
+
+            <div className="pt-4">
+              <button
+                onClick={handleSubmit}
+                disabled={!docFile || !excelFile || isGenerating}
+                className={`w-full flex items-center justify-center space-x-2 px-6 py-3 rounded-lg text-sm font-medium transition-all ${
+                  docFile && excelFile && !isGenerating
+                    ? "bg-blue-600 text-white hover:bg-blue-700"
+                    : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                }`}
+              >
+                {isGenerating ? (
+                  <>
+                    <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2" />
+                    <span>Generating...</span>
+                  </>
+                ) : (
+                  <>
+                    <FiDownload className="w-4 h-4" />
+                    <span>Generate Documents</span>
+                  </>
+                )}
+              </button>
+
+              {/* Download Section */}
+              {isGenerated && downloadLink && (
+                <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
+                  <div className="flex items-center text-green-700 mb-2">
+                    <FiCheckCircle className="w-5 h-5 mr-2" />
+                    <span className="font-medium">Generation Complete!</span>
+                  </div>
+                  <button
+                    onClick={handleDownload}
+                    className="w-full flex items-center justify-center space-x-2 px-6 py-3 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 transition-all"
                   >
-                    {inputValue.split(" ").slice(0, -1).join(" ")} {suggestion}
-                  </li>
-                ))}
-              </ul>
-            )}
+                    <FiDownload className="w-4 h-4" />
+                    <span>Download Generated Files</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-          <p className="text-xs text-gray-500 mt-1">
-            Format: column_name operator value (e.g., "email =
-            example@test.com")
-          </p>
         </div>
-
-        <button
-          type="submit"
-          className="w-full py-2 mt-6 text-white font-semibold bg-blue-800 rounded-md hover:bg-blue-900 focus:outline-none"
-        >
-          Submit
-        </button>
-      </form>
-
-      {/* Result Section */}
-      <div className="flex flex-col items-center justify-center p-6 bg-gray-50 rounded-lg text-center">
-        <h3 className="text-xl font-semibold text-gray-700 mb-4">Result</h3>
-        {downloadLink ? (
-          <div>
-            <p className="mb-4 text-gray-900">
-              Your file is ready for download!
-            </p>
-            <a
-              href={downloadLink}
-              download={`generated-documents.${
-                outputFormat === "docx" ? "zip" : "zip"
-              }`}
-              className=" text-white py-2 px-4 font-semibold bg-blue-800 rounded-md hover:bg-blue-900 focus:outline-none"
-            >
-              Download
-            </a>
-          </div>
-        ) : (
-          <p className="text-gray-900">No file generated yet.</p>
-        )}
       </div>
     </div>
   );
