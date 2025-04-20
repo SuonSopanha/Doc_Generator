@@ -2,7 +2,8 @@
 import { useState, useRef, useEffect } from "react";
 import Autosuggest from "react-autosuggest";
 import * as XLSX from 'xlsx';
-import { FiUpload, FiFilter, FiDownload, FiX, FiCheck, FiCheckCircle, FiLock } from 'react-icons/fi';
+import { FiUpload, FiFilter, FiDownload, FiX, FiCheck, FiCheckCircle, FiLock, FiEye, FiX as FiClose } from 'react-icons/fi';
+import { renderAsync } from 'docx-preview';
 
 // Initialize suggestion sets with default values
 const defaultSuggestionSets = [
@@ -31,31 +32,76 @@ const Form = () => {
   const inputRef = useRef(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGenerated, setIsGenerated] = useState(false);
+  const previewContainerRef = useRef(null);
+  const [showPreview, setShowPreview] = useState(false);
 
-  // Function to read Excel file
-  const readExcelFile = (file) => {
+  // Function to read Excel/CSV/JSON file
+  const readDataFile = (file) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        const headers = XLSX.utils.sheet_to_json(worksheet, { header: 1 })[0];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
+        const fileExtension = file.name.split('.').pop().toLowerCase();
+        let jsonData;
+        let headers;
+
+        if (fileExtension === 'json') {
+          // Handle JSON file
+          jsonData = JSON.parse(e.target.result);
+          // If it's an array of objects, use the keys of the first object as headers
+          if (Array.isArray(jsonData) && jsonData.length > 0) {
+            headers = Object.keys(jsonData[0]);
+          } else {
+            throw new Error('JSON file must contain an array of objects');
+          }
+        } else if (fileExtension === 'csv') {
+          // Handle CSV file
+          const csvText = e.target.result;
+          const rows = csvText.split('\n').map(row => row.split(','));
+          headers = rows[0].map(header => header.trim());
+          jsonData = rows.slice(1).map(row => {
+            const obj = {};
+            row.forEach((cell, index) => {
+              obj[headers[index]] = cell.trim();
+            });
+            return obj;
+          });
+        } else {
+          // Handle Excel file
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+          headers = XLSX.utils.sheet_to_json(worksheet, { header: 1 })[0];
+          jsonData = XLSX.utils.sheet_to_json(worksheet);
+        }
         
-        setExcelData(jsonData); // Store the full data
+        setExcelData(jsonData);
         
         // Update the suggestionSets with the headers
         setSuggestionSets(prev => [
-          headers || [], // First set is now the Excel headers
+          headers || [], // First set is now the headers
           prev[1], // Keep the operators
-          [], // Reset values set for now
+          [], // Reset the values
         ]);
+
       } catch (error) {
-        console.error('Error reading Excel file:', error);
+        console.error('Error reading file:', error);
+        alert('Error reading file. Please make sure it\'s a valid Excel, CSV, or JSON file.');
       }
     };
-    reader.readAsArrayBuffer(file);
+
+    if (file.name.endsWith('.json') || file.name.endsWith('.csv')) {
+      reader.readAsText(file);
+    } else {
+      reader.readAsArrayBuffer(file);
+    }
+  };
+
+  const handleDataFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setExcelFile(file);
+      readDataFile(file);
+    }
   };
 
   // Use effect to update value suggestions when selected column changes
@@ -211,11 +257,58 @@ const Form = () => {
     }
   };
 
-  const handleExcelFileChange = (e) => {
+  const handleDocFileChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      setExcelFile(file);
-      readExcelFile(file);
+      setDocFile(file);
+      setShowPreview(false); // Reset preview when new file is uploaded
+    }
+  };
+
+  const handlePreviewClick = async () => {
+    if (showPreview) {
+      // If preview is shown, hide it
+      setShowPreview(false);
+      if (previewContainerRef.current) {
+        previewContainerRef.current.innerHTML = '';
+      }
+    } else {
+      // If preview is hidden, show it
+      if (!docFile) return;
+      
+      try {
+        // Read the file as ArrayBuffer
+        const arrayBuffer = await docFile.arrayBuffer();
+        
+        // Set preview to show first (important!)
+        setShowPreview(true);
+        
+        // Wait for next render cycle
+        setTimeout(async () => {
+          if (previewContainerRef.current) {
+            // Clear any existing content
+            previewContainerRef.current.innerHTML = '';
+            
+            // Render the document
+            await renderAsync(arrayBuffer, previewContainerRef.current, previewContainerRef.current, {
+              className: 'docx-preview',
+              defaultFont: {
+                family: 'Arial',
+                size: 11
+              },
+              inWrapper: true,
+              ignoreHeight: false,
+              ignoreWidth: false,
+              ignoreFonts: false,
+              breakPages: true,
+              debug: false
+            });
+          }
+        }, 100); // Give enough time for the container to be ready
+      } catch (error) {
+        console.error('Error previewing document:', error);
+        setShowPreview(false);
+      }
     }
   };
 
@@ -236,6 +329,14 @@ const Form = () => {
     }
   };
 
+  useEffect(() => {
+    return () => {
+      if (previewContainerRef.current) {
+        previewContainerRef.current.innerHTML = '';
+      }
+    };
+  }, []);
+
   return (
     <div className="max-w-5xl mx-auto p-6">
       <div className="bg-white rounded-xl shadow-lg overflow-hidden">
@@ -252,37 +353,54 @@ const Form = () => {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Word Document
               </label>
-              <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 transition-all hover:border-blue-500 group">
+              <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg relative">
                 <input
                   type="file"
                   accept=".doc,.docx"
-                  onChange={(e) => setDocFile(e.target.files[0])}
+                  onChange={handleDocFileChange}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                 />
                 <div className="text-center">
-                  <FiUpload className="mx-auto h-8 w-8 text-gray-400 group-hover:text-blue-500" />
-                  <p className="mt-2 text-sm text-gray-500 group-hover:text-blue-600">
-                    {docFile ? docFile.name : "Drop your Word document here or click to browse"}
-                  </p>
+                  <FiUpload className="mx-auto h-12 w-12 text-gray-400" />
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-600">
+                      {docFile ? docFile.name : "Upload a Word document"}
+                    </p>
+                  </div>
                 </div>
               </div>
+              {docFile && (
+                <div className="mt-2 flex items-center justify-end">
+                  <button
+                    type="button"
+                    onClick={handlePreviewClick}
+                    className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  >
+                    <FiEye className="mr-2" />
+                    {showPreview ? 'Hide Preview' : 'View Preview'}
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="relative">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Excel Data Source
+                Data Source
               </label>
               <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 transition-all hover:border-blue-500 group">
                 <input
                   type="file"
-                  accept=".xls,.xlsx,.csv"
-                  onChange={handleExcelFileChange}
+                  accept=".xls,.xlsx,.csv,.json"
+                  onChange={handleDataFileChange}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                 />
                 <div className="text-center">
                   <FiUpload className="mx-auto h-8 w-8 text-gray-400 group-hover:text-blue-500" />
                   <p className="mt-2 text-sm text-gray-500 group-hover:text-blue-600">
-                    {excelFile ? excelFile.name : "Drop your Excel file here or click to browse"}
+                    {excelFile ? excelFile.name : "Drop your data file here (Excel, CSV, or JSON)"}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-400">
+                    Supported formats: .xlsx, .xls, .csv, .json
                   </p>
                 </div>
               </div>
@@ -291,38 +409,46 @@ const Form = () => {
 
           {/* Configuration Section */}
           <div className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Output Format
-              </label>
-              <div className="grid grid-cols-2 gap-4">
-                <button
-                  onClick={() => setOutputFormat("single")}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    outputFormat === "single"
-                      ? "bg-blue-100 text-blue-700 border-2 border-blue-500"
-                      : "bg-gray-100 text-gray-700 border-2 border-transparent hover:bg-gray-200"
-                  }`}
-                >
-                  Single Document
-                </button>
-                <button
-                  onClick={() => setOutputFormat("multiple")}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    outputFormat === "multiple"
-                      ? "bg-blue-100 text-blue-700 border-2 border-blue-500"
-                      : "bg-gray-100 text-gray-700 border-2 border-transparent hover:bg-gray-200"
-                  }`}
-                >
-                  Multiple Documents
-                </button>
+            {/* Output Format Section */}
+            <div className="space-y-4 mt-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Output Format
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Merge Type
+                    </label>
+                    <select
+                      value={outputFormat}
+                      onChange={(e) => setOutputFormat(e.target.value)}
+                      className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                    >
+                      <option value="single">Single Document</option>
+                      <option value="multiple">Multiple Documents</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      File Type
+                    </label>
+                    <select
+                      value={outputExtension}
+                      onChange={(e) => setOutputExtension(e.target.value)}
+                      className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                    >
+                      <option value="docx">DOCX</option>
+                      <option value="pdf">PDF</option>
+                    </select>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* Password Field */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Document Password (Optional)
+                Password (Optional)
               </label>
               <div className="relative">
                 <input
@@ -399,54 +525,48 @@ const Form = () => {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Merging Condition
               </label>
-              <div className="relative" ref={inputRef}>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={inputValue}
-                    onChange={handleInputChange}
-                    onKeyDown={handleKeyDown}
-                    placeholder="column operator value"
-                    className="w-full px-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 pr-10"
-                  />
-                  {inputValue && (
-                    <button
-                      onClick={() => setInputValue("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      <FiX className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Enhanced suggestions dropdown */}
+              <div className="relative">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={inputValue}
+                  onChange={handleInputChange}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Enter condition (e.g., column = value)"
+                  className="block w-full px-4 py-2 text-gray-900 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                />
+                {inputValue && (
+                  <button
+                    onClick={() => setInputValue("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    <FiX className="w-4 h-4" />
+                  </button>
+                )}
                 {showSuggestion && filteredSuggestions.length > 0 && (
-                  <ul className="absolute w-full mt-1 max-h-48 overflow-y-auto bg-white rounded-lg shadow-lg border border-gray-200 divide-y divide-gray-100 z-20">
-                    {filteredSuggestions.map((suggestion, index) => (
-                      <li
-                        key={suggestion}
-                        onClick={() => handleSuggestionClick(suggestion)}
-                        className={`px-4 py-2 cursor-pointer text-sm flex items-center space-x-2 ${
-                          index === activeSuggestion
-                            ? "bg-blue-50 text-blue-700"
-                            : "text-gray-700 hover:bg-gray-50"
-                        }`}
-                      >
-                        <span className="flex-1">
-                          {inputValue.split(" ").length > 1 
-                            ? `${inputValue.split(" ").slice(0, -1).join(" ")} ${suggestion}`
-                            : suggestion
-                          }
-                        </span>
-                        {index === activeSuggestion && (
-                          <FiCheck className="w-4 h-4 text-blue-500" />
-                        )}
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="absolute z-50 w-full mt-1">
+                    <div className="bg-white rounded-md shadow-lg border border-gray-200 overflow-y-auto" style={{ maxHeight: '300px' }}>
+                      <ul className="py-1">
+                        {filteredSuggestions.map((suggestion, index) => (
+                          <li
+                            key={suggestion}
+                            onClick={() => handleSuggestionClick(suggestion)}
+                            className={`px-4 py-2 text-sm cursor-pointer hover:bg-blue-50 ${
+                              index === activeSuggestion ? 'bg-blue-50' : ''
+                            }`}
+                          >
+                            {inputValue.split(" ").length > 1 
+                              ? `${inputValue.split(" ").slice(0, -1).join(" ")} ${suggestion}`
+                              : suggestion
+                            }
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
                 )}
               </div>
-              <p className="text-xs text-gray-500 mt-1 flex items-center">
+              <p className="mt-1 text-xs text-gray-500 flex flex-row items-center">
                 <FiFilter className="w-3 h-3 mr-1" />
                 Format: column_name operator value (e.g., "email = john@example.com")
               </p>
@@ -494,6 +614,42 @@ const Form = () => {
             </div>
           </div>
         </div>
+
+        {/* Preview Modal */}
+        {showPreview && (
+          <div className="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+            {/* Background overlay */}
+            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"></div>
+
+            <div className="flex min-h-screen items-center justify-center p-4 text-center sm:p-0">
+              <div className="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-5xl">
+                {/* Modal header */}
+                <div className="bg-white px-4 py-3 border-b border-gray-200 flex justify-between items-center">
+                  <h3 className="text-lg font-medium text-gray-900">
+                    Document Preview
+                  </h3>
+                  <button
+                    type="button"
+                    className="rounded-md bg-white text-gray-400 hover:text-gray-500 focus:outline-none"
+                    onClick={() => setShowPreview(false)}
+                  >
+                    <span className="sr-only">Close</span>
+                    <FiClose className="h-6 w-6" />
+                  </button>
+                </div>
+
+                {/* Modal content */}
+                <div className="bg-white" style={{ height: '80vh', overflowY: 'auto' }}>
+                  <div 
+                    ref={previewContainerRef}
+                    className="p-4 min-h-full"
+                    style={{ minWidth: '800px' }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
