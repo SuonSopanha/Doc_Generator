@@ -13,7 +13,6 @@ const defaultSuggestionSets = [
 ];
 
 const Form = () => {
-  const [placeholders, setPlaceholders] = useState([""]);
   const [docFile, setDocFile] = useState(null);
   const [excelFile, setExcelFile] = useState(null);
   const [outputFormat, setOutputFormat] = useState("single");
