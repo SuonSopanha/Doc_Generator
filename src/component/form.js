@@ -567,7 +567,7 @@ const Form = () => {
               </div>
               <p className="mt-1 text-xs text-gray-500 flex flex-row items-center">
                 <FiFilter className="w-3 h-3 mr-1" />
-                Format: column_name operator value (e.g., "email = john@example.com")
+                Format: column_name operator value (e.g., &quot;email = john@example.com&quot;)
               </p>
             </div>
 
