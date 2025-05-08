@@ -207,7 +207,7 @@ const Form = () => {
     }
 
     try {
-      const response = await fetch("http://localhost:4000/upload", {
+      const response = await fetch("https://docx-gen.xyz/upload", {
         method: "POST",
         body: formData,
       });
