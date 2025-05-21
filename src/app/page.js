@@ -10,7 +10,7 @@ export default function Home() {
           <h1 className="text-4xl font-bold text-gray-800 mb-4">
             Automate Your Document Generation
           </h1>
-          <p className="text-lg text-gray-600 mb-8">
+          <p className="text-lg text-gray-600">
             Say goodbye to manual document creation. Our tool lets you generate
             customized documents in seconds, streamlining your workflow and
             saving valuable time. Simply upload your template and data, select
