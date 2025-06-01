@@ -207,7 +207,7 @@ const Form = () => {
     }
 
     try {
-      const response = await fetch("https://docx-gen.xyz/api/upload", {
+      const response = await fetch(process.env.PUBLIC_API_URL + "/api/upload", {
         method: "POST",
         body: formData,
       });
