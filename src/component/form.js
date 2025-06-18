@@ -333,7 +333,7 @@ const Form = () => {
         throw new Error(errorMsg);
       }
 
-      if (response.status === 202 && responseData.jobId) {
+      if (response.status === 200 && responseData.jobId) {
         // Successfully submitted, start polling
         startJobPolling(responseData.jobId);
         // isGenerating remains true until polling determines final state
