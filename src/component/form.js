@@ -13,6 +13,10 @@ const defaultSuggestionSets = [
 ];
 
 const Form = () => {
+  const [jobId, setJobId] = useState(null);
+  const [jobStatus, setJobStatus] = useState(null); // e.g., 'queued', 'processing', 'completed', 'failed'
+  const [jobError, setJobError] = useState(null);
+  const [pollingIntervalId, setPollingIntervalId] = useState(null);
   const [docFile, setDocFile] = useState(null);
   const [excelFile, setExcelFile] = useState(null);
   const [outputFormat, setOutputFormat] = useState("single");
@@ -30,7 +34,7 @@ const Form = () => {
   const [selectedColumn, setSelectedColumn] = useState(null);
   const inputRef = useRef(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isGenerated, setIsGenerated] = useState(false);
+  const [isGenerated, setIsGenerated] = useState(false); // Will be set true when job polling confirms completion
   const previewContainerRef = useRef(null);
   const [showPreview, setShowPreview] = useState(false);
 
@@ -168,6 +172,109 @@ const Form = () => {
     }
   };
 
+  // Effect for cleaning up polling interval and preview on component unmount
+  useEffect(() => {
+    const currentPreviewRef = previewContainerRef.current; // Capture the value of .current
+
+    return () => {
+      if (pollingIntervalId) {
+        clearInterval(pollingIntervalId);
+      }
+      // Cleanup for preview using the captured value
+      if (currentPreviewRef) {
+        currentPreviewRef.innerHTML = '';
+      }
+    };
+  }, [pollingIntervalId]); // previewContainerRef itself is stable, so not needed in deps for this pattern
+
+  const stopPolling = () => {
+    if (pollingIntervalId) {
+      clearInterval(pollingIntervalId);
+      setPollingIntervalId(null);
+    }
+  };
+
+  const pollJobStatus = async (currentJobId) => {
+    if (!currentJobId) return;
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/job-status/${currentJobId}`);
+      if (!response.ok) {
+        // If status endpoint itself fails, but not a 404 for job not found
+        if (response.status !== 404) {
+          throw new Error(`Job status check failed: ${response.statusText}`);
+        }
+        // For 404, job might not be ready or an issue occurred
+        const errorData = await response.json().catch(() => ({ message: 'Job not found or an error occurred.' }));
+        setJobStatus('error');
+        setJobError(errorData.message || 'Failed to retrieve job status.');
+        setIsGenerating(false);
+        stopPolling();
+        return;
+      }
+
+      const data = await response.json();
+      setJobStatus(data.status);
+
+      if (data.status === 'completed') {
+        setJobError(null);
+        // Assuming returnValue contains { finalPackagePath: '...' }
+        if (data.returnValue && data.returnValue.finalPackagePath) {
+          // Construct full URL if finalPackagePath is relative
+          const fullDownloadPath = data.returnValue.finalPackagePath.startsWith('http') 
+            ? data.returnValue.finalPackagePath
+            : `${process.env.NEXT_PUBLIC_API_URL}${data.returnValue.finalPackagePath.startsWith('/') ? '' : '/'}api/download/${data.returnValue.finalPackagePath}`;
+          setDownloadLink(fullDownloadPath);
+          setIsGenerated(true);
+
+        } else {
+          setJobStatus('error');
+          setJobError('Job completed but no download path was provided.');
+        }
+        setIsGenerating(false);
+        stopPolling();
+      } else if (data.status === 'failed') {
+        setJobError(data.failedReason || 'Document generation failed.');
+        setIsGenerating(false);
+        stopPolling();
+      } else if (['active', 'waiting', 'delayed', 'queued'].includes(data.status)) {
+        // Job is still processing, continue polling
+        setJobError(null); // Clear previous errors if any
+      } else if (data.status === 'not_found'){
+        setJobStatus('error');
+        setJobError('Job not found. It might have expired or never existed.');
+        setIsGenerating(false);
+        stopPolling();
+      } else {
+        // Any other unexpected status
+        setJobStatus('error');
+        setJobError(`Unknown job status: ${data.status}`);
+        setIsGenerating(false);
+        stopPolling();
+      }
+    } catch (error) {
+      console.error('Error polling job status:', error);
+      setJobStatus('error');
+      setJobError(error.message || 'An error occurred while checking job status.');
+      setIsGenerating(false);
+      stopPolling();
+    }
+  };
+
+  const startJobPolling = (newJobId) => {
+    stopPolling(); // Clear any existing interval
+    setJobId(newJobId);
+    setJobStatus('queued'); // Initial status
+    setJobError(null);
+    setIsGenerated(false);
+    setDownloadLink(null);
+
+    // Immediately poll once, then set interval
+    pollJobStatus(newJobId);
+    const intervalId = setInterval(() => pollJobStatus(newJobId), 3000); // Poll every 3 seconds
+    setPollingIntervalId(intervalId);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsGenerating(true);
@@ -206,53 +313,69 @@ const Form = () => {
       formData.append("mergingCondition", JSON.stringify(mergingCondition));
     }
 
+    setJobId(null); // Reset job ID from previous attempts
+    setJobStatus(null);
+    setJobError(null);
+    setIsGenerated(false);
+    setDownloadLink(null);
+
     try {
-      const response = await fetch(process.env.PUBLIC_API_URL + "/api/upload", {
+      const response = await fetch(process.env.NEXT_PUBLIC_API_URL + "/api/upload", {
         method: "POST",
         body: formData,
       });
 
+      const responseData = await response.json(); // Expect JSON response now
+
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        // Try to get error message from backend response
+        const errorMsg = responseData.message || responseData.error || `HTTP error! status: ${response.status}`;
+        throw new Error(errorMsg);
       }
 
-      // Get the blob directly from the response
-      const blob = await response.blob();
-      
-      // Create a URL for the blob
-      const url = window.URL.createObjectURL(blob);
-      setDownloadLink(url);
-      setIsGenerated(true);
+      if (response.status === 202 && responseData.jobId) {
+        // Successfully submitted, start polling
+        startJobPolling(responseData.jobId);
+        // isGenerating remains true until polling determines final state
+      } else {
+        // Unexpected response if not 202 or no jobId
+        throw new Error(responseData.message || 'Unexpected response from server.');
+      }
+
     } catch (error) {
-      console.error('Error generating document:', error);
-      alert('Failed to generate document. Please try again.');
-    } finally {
-      setIsGenerating(false);
+      console.error('Error submitting document generation request:', error);
+      setJobStatus('error');
+      setJobError(error.message || 'Failed to submit document generation request. Please try again.');
+      setIsGenerating(false); // Set to false as the submission itself failed
+      // No alert here, rely on UI to show jobError
     }
+    // No finally block for setIsGenerating(false) here, it's handled by polling logic or catch block above.
   };
 
   // Function to handle the download and cleanup
-  const handleDownload = async () => {
-    if (!downloadLink) return;
+  const handleDownload = () => { // No longer async unless we add server interaction here
+    if (!downloadLink || !isGenerated) return;
+    console.log(downloadLink)
 
     try {
-      // Create an invisible anchor element
       const a = document.createElement('a');
-      a.href = downloadLink;
-      a.download = `documents-${Date.now()}.zip`;
+      a.href = downloadLink; // This is now a direct URL from the server
+      // Try to get a filename from the URL, or use a generic one
+      const fileNameFromServer = downloadLink.substring(downloadLink.lastIndexOf('/') + 1);
+      a.download = fileNameFromServer || `generated-documents-${jobId || Date.now()}.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
 
-      // Cleanup the blob URL after download starts
-      setTimeout(() => {
-        window.URL.revokeObjectURL(downloadLink);
-        setDownloadLink(null);
-        setIsGenerated(false);
-      }, 100);
+      // Optional: Reset state after download initiated
+      // setDownloadLink(null);
+      // setIsGenerated(false);
+      // setJobId(null);
+      // setJobStatus(null);
     } catch (error) {
-      console.error('Error downloading file:', error);
-      alert('Failed to download file. Please try again.');
+      console.error('Error initiating download:', error);
+      setJobError('Failed to initiate download. Please try again or check console.');
+      // No alert here, rely on UI to show jobError or a notification
     }
   };
 
@@ -328,13 +451,7 @@ const Form = () => {
     }
   };
 
-  useEffect(() => {
-    return () => {
-      if (previewContainerRef.current) {
-        previewContainerRef.current.innerHTML = '';
-      }
-    };
-  }, []);
+  // The useEffect for preview cleanup is now part of the combined useEffect at the top.
 
   return (
     <div className="max-w-5xl mx-auto p-6">
@@ -346,6 +463,22 @@ const Form = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-6">
+            {/* Job Status Display - Spanning both columns */} 
+            {(jobId || jobStatus) && (
+              <div className="md:col-span-2">
+                <div className={`p-4 rounded-md text-sm ${jobStatus === 'failed' || jobStatus === 'error' ? 'bg-red-100 text-red-700' : jobStatus === 'completed' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                  {jobStatus === 'queued' && <p>Your request has been queued (Job ID: {jobId}). Waiting for processing...</p>}
+                  {jobStatus === 'processing' && <p>Processing document... (Job ID: {jobId})</p>}
+                  {jobStatus === 'active' && <p>Document generation is active... (Job ID: {jobId})</p>}
+                  {jobStatus === 'waiting' && <p>Job is waiting in the queue... (Job ID: {jobId})</p>}
+                  {jobStatus === 'delayed' && <p>Job processing is delayed... (Job ID: {jobId})</p>}
+                  {jobStatus === 'completed' && isGenerated && <p>Document generation complete! (Job ID: {jobId}) Ready for download.</p>}
+                  {(jobStatus === 'failed' || jobStatus === 'error') && <p>Job Failed (ID: {jobId}): {jobError || 'An unknown error occurred.'}</p>}
+                  {jobStatus && !['completed', 'failed', 'error', 'queued', 'processing', 'active', 'waiting', 'delayed'].includes(jobStatus) && 
+                    <p>Current Status: {jobStatus} (Job ID: {jobId})</p>}
+                </div>
+              </div>
+            )}
           {/* File Upload Section */}
           <div className="space-y-6">
             <div className="relative">
@@ -595,7 +728,7 @@ const Form = () => {
               </button>
 
               {/* Download Section */}
-              {isGenerated && downloadLink && (
+              {isGenerated && downloadLink && jobStatus === 'completed' && (
                 <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
                   <div className="flex items-center text-green-700 mb-2">
                     <FiCheckCircle className="w-5 h-5 mr-2" />
