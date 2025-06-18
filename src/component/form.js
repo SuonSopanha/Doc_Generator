@@ -333,6 +333,9 @@ const Form = () => {
         throw new Error(errorMsg);
       }
 
+      console.log(response.status)
+      console.log(responseData)
+
       if (response.status === 200 && responseData.jobId) {
         // Successfully submitted, start polling
         startJobPolling(responseData.jobId);
