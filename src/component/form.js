@@ -525,17 +525,17 @@ const Form = () => {
               <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 transition-all hover:border-blue-500 group">
                 <input
                   type="file"
-                  accept=".xls,.xlsx,.csv,.json"
+                  accept=".xls,.xlsx,.csv"
                   onChange={handleDataFileChange}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                 />
                 <div className="text-center">
                   <FiUpload className="mx-auto h-8 w-8 text-gray-400 group-hover:text-blue-500" />
                   <p className="mt-2 text-sm text-gray-500 group-hover:text-blue-600">
-                    {excelFile ? excelFile.name : "Drop your data file here (Excel, CSV, or JSON)"}
+                    {excelFile ? excelFile.name : "Drop your data file here (Excel, CSV)"}
                   </p>
                   <p className="mt-1 text-xs text-gray-400">
-                    Supported formats: .xlsx, .xls, .csv, .json
+                    Supported formats: .xlsx, .xls, .csv
                   </p>
                 </div>
               </div>
