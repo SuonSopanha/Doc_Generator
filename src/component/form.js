@@ -320,14 +320,12 @@ const Form = () => {
     setDownloadLink(null);
 
     try {
-      console.log(formData)
-      console.log("is calling api")
+
       const response = await fetch(process.env.NEXT_PUBLIC_API_URL + "/api/upload", {
         method: "POST",
         body: formData,
       });
 
-      console.log(response)
 
       const responseData = await response.json(); // Expect JSON response now
 
@@ -337,8 +335,6 @@ const Form = () => {
         throw new Error(errorMsg);
       }
 
-      console.log(response.status)
-      console.log(responseData)
 
       if (response.status === 200 && responseData.jobId) {
         // Successfully submitted, start polling

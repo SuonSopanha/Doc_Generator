@@ -14,14 +14,18 @@ export default function Home() {
             Say goodbye to manual document creation. Our tool lets you generate
             customized documents in seconds, streamlining your workflow and
             saving valuable time. Simply upload your template and data, select
-            the format, and download your generated documents effortlessly.
+            the format, and download your generated documents effortlessly. <span>
+              <a href="/user-manual.pdf" target="_blank" className="text-blue-600 hover:underline">
+                User Manual
+              </a>
+            </span>
           </p>
         </div>
       </section>
 
 
       {/* Form Section */}
-      <div className="w-full min-w-full mx-auto px-4 ">
+      <div className="w-full min-w-full mx-auto px-4 -mt-12">
         <Form />
       </div>
 
@@ -41,6 +45,9 @@ export default function Home() {
             </a>
             <a href="#" className="hover:text-white">
               Contact Us
+            </a>
+            <a href="/user-manual.pdf" target="_blank" className="hover:text-white">
+              User Manual
             </a>
           </div>
           <p>Follow us on:</p>
